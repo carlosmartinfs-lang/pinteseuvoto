@@ -1,7 +1,7 @@
 import { admin } from '../../../lib/supabaseAdmin';
 import { createPix } from '../../../lib/mercadopago';
 import {
-  W, H, PRICE, MAX_PER_ORDER, RESERVE_MINUTES, COLORS, MAX_NICK, MAX_MSG, hasBadWord,
+  W, H, PRICE, MAX_PER_ORDER, RESERVE_MINUTES, COLORS, MAX_NICK, MAX_MSG, hasBadWord, letterAt,
 } from '../../../lib/config';
 
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,7 @@ export async function POST(req) {
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= W || y >= H) {
       return fail('Quadradinho fora do mural.');
     }
+    if (letterAt(x, y) !== -1) return fail('As letras L X F não podem ser pintadas por cima.');
     const key = y * W + x;
     if (!seen.has(key)) {
       seen.add(key);
