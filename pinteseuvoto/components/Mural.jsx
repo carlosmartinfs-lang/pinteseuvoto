@@ -157,12 +157,16 @@ export default function Mural() {
       ctx.setLineDash([5, 3]);
       ctx.strokeRect(rx, ry, rw, rh);
       ctx.setLineDash([]);
-      const label = `${num((x1 - x0) * (y1 - y0))} quadradinhos`;
+      const area = (x1 - x0) * (y1 - y0);
+      const tooBig = s.sel.size + area > MAX_PER_ORDER;
+      const label = tooBig
+        ? `${num(area)} — grande demais (máx. ${num(MAX_PER_ORDER)})`
+        : `${num(area)} quadradinhos`;
       ctx.font = '600 13px Inter, system-ui, sans-serif';
       const tw = ctx.measureText(label).width + 16;
       const lx = Math.min(Math.max(rx, 4), cw - tw - 4);
       const ly = Math.max(ry - 30, 4);
-      ctx.fillStyle = 'rgba(17,17,17,0.88)';
+      ctx.fillStyle = tooBig ? 'rgba(180,35,24,0.95)' : 'rgba(17,17,17,0.88)';
       ctx.fillRect(lx, ly, tw, 24);
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(label, lx + 8, ly + 16);
@@ -361,19 +365,28 @@ export default function Mural() {
     const y0 = Math.max(0, Math.min(a.y, b.y));
     const x1 = Math.min(W - 1, Math.max(a.x, b.x));
     const y1 = Math.min(H - 1, Math.max(a.y, b.y));
-    let full = false;
-    for (let y = y0; y <= y1 && !full; y++) {
+    // conta antes quantos quadradinhos novos o retângulo pegaria
+    let novos = 0;
+    for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const k = y * W + x;
-        if (s.board[k]) continue;
-        if (!s.sel.has(k) && s.sel.size >= MAX_PER_ORDER) {
-          full = true;
-          break;
-        }
-        s.sel.set(k, colorRef.current);
+        if (!s.board[k] && !s.sel.has(k)) novos++;
       }
     }
-    if (full) setError(`Máximo de ${num(MAX_PER_ORDER)} quadradinhos por compra. Pintei até onde deu.`);
+    if (s.sel.size + novos > MAX_PER_ORDER) {
+      setError(
+        `Esse retângulo tem ${num(novos)} quadradinhos e o máximo por compra é ${num(MAX_PER_ORDER)}. ` +
+        'Dê zoom (+) e faça um retângulo menor.'
+      );
+      requestDraw();
+      return;
+    }
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const k = y * W + x;
+        if (!s.board[k]) s.sel.set(k, colorRef.current);
+      }
+    }
     syncSel();
     requestDraw();
   }
