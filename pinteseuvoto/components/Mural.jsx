@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
-  W, H, CHUNK, PRICE, MAX_PER_ORDER, COLORS, MAX_NICK, MAX_MSG, hasBadWord,
+  W, H, CHUNK, PRICE, MAX_PER_ORDER, COLORS, MAX_NICK, MAX_MSG, hasBadWord, letterAt,
 } from '../lib/config';
 
 const RGB = COLORS.map((c) => [
@@ -29,13 +29,13 @@ export default function Mural() {
     g.current = {
       board: null, off: null, offCtx: null, img: null,
       view: { scale: 1, ox: 0, oy: 0 }, minScale: 0.1,
-      sel: new Set(), loaded: new Set(), loading: new Set(), failed: new Map(),
-      pointers: new Map(), pinch: null, painting: null, pan: null, hover: null,
+      sel: new Map(), loaded: new Set(), loading: new Set(), failed: new Map(),
+      pointers: new Map(), pinch: null, painting: null, pan: null, hover: null, rect: null,
       raf: 0, cw: 0, ch: 0, ready: false,
     };
   }
 
-  const [mode, setMode] = useState('pintar');
+  const [mode, setMode] = useState('balde');
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const [color, setColor] = useState(0);
@@ -43,6 +43,7 @@ export default function Mural() {
   colorRef.current = color;
 
   const [selCount, setSelCount] = useState(0);
+  const [selColors, setSelColors] = useState(() => COLORS.map(() => 0));
   const [hover, setHover] = useState(null);
   const [nick, setNick] = useState('');
   const [msg, setMsg] = useState('');
@@ -93,8 +94,8 @@ export default function Mural() {
         ox + sx0 * scale, oy + sy0 * scale, (sx1 - sx0) * scale, (sy1 - sy0) * scale
       );
 
-      if (scale >= 8) {
-        ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+      if (scale >= 4) {
+        ctx.strokeStyle = scale >= 12 ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.10)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         const top = oy + sy0 * scale;
@@ -118,23 +119,53 @@ export default function Mural() {
     // quadradinhos selecionados
     if (s.sel.size) {
       const size = Math.max(scale, 2);
-      ctx.fillStyle = COLORS[colorRef.current].hex;
-      for (const k of s.sel) {
+      for (const [k, c] of s.sel) {
         const x = k % W;
         const y = (k - x) / W;
+        ctx.fillStyle = COLORS[c].hex;
         ctx.fillRect(ox + x * scale, oy + y * scale, size, size);
       }
       if (scale >= 4) {
         ctx.strokeStyle = '#111111';
         ctx.lineWidth = scale >= 10 ? 2 : 1;
         ctx.setLineDash(scale >= 8 ? [3, 2] : []);
-        for (const k of s.sel) {
+        for (const k of s.sel.keys()) {
           const x = k % W;
           const y = (k - x) / W;
           ctx.strokeRect(ox + x * scale + 0.5, oy + y * scale + 0.5, scale - 1, scale - 1);
         }
         ctx.setLineDash([]);
       }
+    }
+
+    // retângulo do baldinho sendo arrastado
+    if (s.rect) {
+      const x0 = Math.min(s.rect.a.x, s.rect.b.x);
+      const y0 = Math.min(s.rect.a.y, s.rect.b.y);
+      const x1 = Math.max(s.rect.a.x, s.rect.b.x) + 1;
+      const y1 = Math.max(s.rect.a.y, s.rect.b.y) + 1;
+      const rx = ox + x0 * scale;
+      const ry = oy + y0 * scale;
+      const rw = Math.max((x1 - x0) * scale, 2);
+      const rh = Math.max((y1 - y0) * scale, 2);
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = COLORS[colorRef.current].hex;
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#111111';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+      const label = `${num((x1 - x0) * (y1 - y0))} quadradinhos`;
+      ctx.font = '600 13px Inter, system-ui, sans-serif';
+      const tw = ctx.measureText(label).width + 16;
+      const lx = Math.min(Math.max(rx, 4), cw - tw - 4);
+      const ly = Math.max(ry - 30, 4);
+      ctx.fillStyle = 'rgba(17,17,17,0.88)';
+      ctx.fillRect(lx, ly, tw, 24);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(label, lx + 8, ly + 16);
     }
 
     // quadradinho sob o mouse
@@ -181,7 +212,7 @@ export default function Mural() {
     s.img.data[p + 3] = 255;
     if (s.sel.has(i)) {
       s.sel.delete(i);
-      setSelCount(s.sel.size);
+      syncSel();
     }
   }
 
@@ -289,14 +320,22 @@ export default function Mural() {
     if (s.board[k]) return; // já pintado
     if (erase) {
       s.sel.delete(k);
-    } else if (!s.sel.has(k)) {
-      if (s.sel.size >= MAX_PER_ORDER) {
+    } else {
+      if (!s.sel.has(k) && s.sel.size >= MAX_PER_ORDER) {
         setError(`Máximo de ${num(MAX_PER_ORDER)} quadradinhos por compra.`);
         return;
       }
-      s.sel.add(k);
+      s.sel.set(k, colorRef.current);
     }
+    syncSel();
+  }
+
+  function syncSel() {
+    const s = g.current;
+    const counts = COLORS.map(() => 0);
+    for (const c of s.sel.values()) counts[c]++;
     setSelCount(s.sel.size);
+    setSelColors(counts);
   }
 
   function paintLine(a, b, erase) {
@@ -316,9 +355,32 @@ export default function Mural() {
     }
   }
 
+  function applyRect(a, b) {
+    const s = g.current;
+    const x0 = Math.max(0, Math.min(a.x, b.x));
+    const y0 = Math.max(0, Math.min(a.y, b.y));
+    const x1 = Math.min(W - 1, Math.max(a.x, b.x));
+    const y1 = Math.min(H - 1, Math.max(a.y, b.y));
+    let full = false;
+    for (let y = y0; y <= y1 && !full; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const k = y * W + x;
+        if (s.board[k]) continue;
+        if (!s.sel.has(k) && s.sel.size >= MAX_PER_ORDER) {
+          full = true;
+          break;
+        }
+        s.sel.set(k, colorRef.current);
+      }
+    }
+    if (full) setError(`Máximo de ${num(MAX_PER_ORDER)} quadradinhos por compra. Pintei até onde deu.`);
+    syncSel();
+    requestDraw();
+  }
+
   function clearSelection() {
     g.current.sel.clear();
-    setSelCount(0);
+    syncSel();
     requestDraw();
   }
 
@@ -338,6 +400,7 @@ export default function Mural() {
     if (s.pointers.size === 2) {
       s.painting = null;
       s.pan = null;
+      s.rect = null;
       const [a, b] = [...s.pointers.values()];
       s.pinch = { d: dist(a, b) || 1, m: mid(a, b), view: { ...s.view } };
       return;
@@ -356,7 +419,12 @@ export default function Mural() {
       return;
     }
     setError('');
-    const erase = s.sel.has(cell.y * W + cell.x);
+    if (modeRef.current === 'balde') {
+      s.rect = { a: cell, b: cell };
+      requestDraw();
+      return;
+    }
+    const erase = s.sel.get(cell.y * W + cell.x) === colorRef.current;
     s.painting = { erase, last: cell };
     applyCell(cell.x, cell.y, erase);
     requestDraw();
@@ -379,7 +447,15 @@ export default function Mural() {
       return;
     }
 
-    if (s.painting) {
+    if (s.rect) {
+      const { scale, ox, oy } = s.view;
+      const cx = Math.min(W - 1, Math.max(0, Math.floor((p.x - ox) / scale)));
+      const cy = Math.min(H - 1, Math.max(0, Math.floor((p.y - oy) / scale)));
+      if (cx !== s.rect.b.x || cy !== s.rect.b.y) {
+        s.rect.b = { x: cx, y: cy };
+        requestDraw();
+      }
+    } else if (s.painting) {
       const cell = cellAt(p.x, p.y);
       if (cell && (cell.x !== s.painting.last.x || cell.y !== s.painting.last.y)) {
         paintLine(s.painting.last, cell, s.painting.erase);
@@ -406,6 +482,12 @@ export default function Mural() {
   function onPointerUp(e) {
     const s = g.current;
     s.pointers.delete(e.pointerId);
+    if (s.rect) {
+      const r = s.rect;
+      s.rect = null;
+      if (e.type === 'pointerup' && s.pointers.size === 0) applyRect(r.a, r.b);
+      else requestDraw();
+    }
     if (s.pointers.size < 2) s.pinch = null;
     if (s.pointers.size === 1) {
       s.painting = null;
@@ -444,6 +526,20 @@ export default function Mural() {
     s.offCtx = s.off.getContext('2d');
     s.img = s.offCtx.createImageData(W, H);
     s.img.data.fill(255);
+    // letras L X F fixas
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const c = letterAt(x, y);
+        if (c !== -1) {
+          const i = y * W + x;
+          s.board[i] = c + 1;
+          const p = i * 4;
+          s.img.data[p] = RGB[c][0];
+          s.img.data[p + 1] = RGB[c][1];
+          s.img.data[p + 2] = RGB[c][2];
+        }
+      }
+    }
     s.offCtx.putImageData(s.img, 0, 0);
 
     const canvas = canvasRef.current;
@@ -559,7 +655,7 @@ export default function Mural() {
       return;
     }
     const s = g.current;
-    const cells = [...s.sel].map((k) => [k % W, Math.floor(k / W)]);
+    const cells = [...s.sel].map(([k, c]) => [k % W, Math.floor(k / W), c]);
     setBusy(true);
     try {
       const r = await fetch('/api/checkout', {
@@ -609,7 +705,7 @@ export default function Mural() {
           </div>
           <div>
             <div className="brand-name">pinte seu voto</div>
-            <div className="brand-sub">pinteseuvotofxl.com</div>
+            <div className="brand-sub">pinteseuvotofxl.vercel.app</div>
           </div>
         </div>
         <div className="stats">
@@ -633,6 +729,7 @@ export default function Mural() {
         <aside className="card buy" aria-label="Comprar quadradinhos">
           <div className="field" style={{ gap: 12 }}>
             <h2>1. Escolha a cor</h2>
+            <p className="hint" style={{ marginTop: -6 }}>Pode trocar de cor no meio: cada quadradinho fica com a cor que estava escolhida.</p>
             <div className="swatches">
               {COLORS.map((c, i) => (
                 <div className="swatch" key={c.name}>
@@ -689,6 +786,18 @@ export default function Mural() {
               <span>Selecionados</span>
               <b>{num(selCount)} quadradinho{selCount === 1 ? '' : 's'}</b>
             </div>
+            {selCount > 0 && (
+              <div className="sel-colors">
+                {COLORS.map((c, i) =>
+                  selColors[i] > 0 ? (
+                    <span key={c.name} className="sel-color">
+                      <span className="rank-dot" style={{ background: c.hex }} />
+                      {num(selColors[i])}
+                    </span>
+                  ) : null
+                )}
+              </div>
+            )}
             <div className="row">
               <span>Total</span>
               <span className="total">{brl(total)}</span>
@@ -711,8 +820,18 @@ export default function Mural() {
         <section className="mural-col" aria-label="Mural">
           <div className="toolbar">
             <div className="toggle" role="group" aria-label="Modo">
-              <button aria-pressed={mode === 'pintar'} onClick={() => setMode('pintar')}>Pintar</button>
-              <button aria-pressed={mode === 'mover'} onClick={() => setMode('mover')}>Mover</button>
+              <button aria-pressed={mode === 'balde'} onClick={() => setMode('balde')}>
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-3px', marginRight: 6 }}><path d="M19 11 11 3 2.5 11.5a2 2 0 0 0 0 2.8l5.2 5.2a2 2 0 0 0 2.8 0Z" /><path d="m5 2 5 5" /><path d="M2 13h15" /><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z" /></svg>
+                Baldinho
+              </button>
+              <button aria-pressed={mode === 'pintar'} onClick={() => setMode('pintar')}>
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-3px', marginRight: 6 }}><path d="M18.4 2.6a2.2 2.2 0 0 1 3 3L12 15l-4 1 1-4Z" /><path d="M7 17c-2 0-3 1.5-3 3.5 0 .5-.5 1-1.5 1.5 1 .5 2.5 1 4 1 2.5 0 4-1.5 4-3.5" /></svg>
+                Pincel
+              </button>
+              <button aria-pressed={mode === 'mover'} onClick={() => setMode('mover')}>
+                <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: '-3px', marginRight: 6 }}><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20" /></svg>
+                Mover
+              </button>
             </div>
             <button className="btn-light" onClick={fit}>Ver mural inteiro</button>
           </div>
@@ -753,9 +872,10 @@ export default function Mural() {
             </div>
           </div>
           <p className="hint">
-            Pintar: clique ou arraste para selecionar (clique de novo para tirar). Mover: arraste para andar
-            pelo mural. No computador, segure Shift ou use o botão direito para andar sem trocar de modo.
-            No celular, use dois dedos para dar zoom.
+            Baldinho: arraste para pintar um retângulo inteiro de uma vez. Pincel: clique ou arraste para
+            desenhar quadradinho por quadradinho (clique de novo para tirar). Mover: arraste para andar pelo
+            mural. No computador, segure Shift ou use o botão direito para andar sem trocar de modo. No
+            celular, use dois dedos para dar zoom.
           </p>
         </section>
 
