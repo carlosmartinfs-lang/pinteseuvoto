@@ -71,7 +71,9 @@ button, input { font-family: inherit; }
 
 .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; }
 .row span:first-child { color: var(--muted); }
-.total { font-family: var(--display); font-weight: 700; font-size: 26px; }
+.sel-colors { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.sel-color { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.total {font-family: var(--display); font-weight: 700; font-size: 26px; }
 
 .btn {
   height: 52px; border-radius: 10px; border: 0; background: var(--ink); color: #fff;
