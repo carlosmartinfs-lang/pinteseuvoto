@@ -28,37 +28,34 @@ export const COLORS = [
 ];
 
 // Letras gigantes "L X F" já pintadas no mural (não podem ser compradas).
+// Cada letra é feita de traços com pontas arredondadas.
 // Cores: índice da lista COLORS acima (0 = vermelho, 1 = verde, 4 = preto).
-const TOP = 300;
-const BOTTOM = 1200;
-const T = 120; // grossura das letras
+const R = 34; // metade da grossura do traço (em quadradinhos)
+const LETTERS = [
+  { color: 0, segs: [[230, 330, 230, 1170], [230, 1170, 610, 1170]] }, // L
+  { color: 4, segs: [[800, 330, 1200, 1170], [1200, 330, 800, 1170]] }, // X
+  { color: 1, segs: [[1400, 330, 1400, 1170], [1400, 330, 1800, 330], [1400, 730, 1700, 730]] }, // F
+];
+
+function distSeg(x, y, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy)));
+  const px = x1 + t * dx - x;
+  const py = y1 + t * dy - y;
+  return px * px + py * py;
+}
 
 export function letterAt(x, y) {
-  if (y < TOP || y >= BOTTOM) return -1;
-
-  // L vermelho (esquerda)
-  if (x >= 150 && x < 650) {
-    if (x < 150 + T || y >= BOTTOM - T) return 0;
-    return -1;
+  if (y < 330 - R || y > 1170 + R) return -1;
+  const cx = x + 0.5;
+  const cy = y + 0.5;
+  for (const l of LETTERS) {
+    for (const [x1, y1, x2, y2] of l.segs) {
+      if (cx < Math.min(x1, x2) - R || cx > Math.max(x1, x2) + R) continue;
+      if (distSeg(cx, cy, x1, y1, x2, y2) <= R * R) return l.color;
+    }
   }
-
-  // X preto (meio)
-  if (x >= 760 && x < 1240) {
-    const u = (x - 760) / 480;
-    const v = (y - TOP) / (BOTTOM - TOP);
-    const half = T / 2 / 480;
-    if (Math.abs(u - v) < half || Math.abs(u - (1 - v)) < half) return 4;
-    return -1;
-  }
-
-  // F verde (direita)
-  if (x >= 1350 && x < 1850) {
-    if (x < 1350 + T) return 1;
-    if (y < TOP + T) return 1;
-    if (x < 1750 && y >= 690 && y < 690 + T) return 1;
-    return -1;
-  }
-
   return -1;
 }
 
