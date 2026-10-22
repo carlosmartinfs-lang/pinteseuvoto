@@ -17,29 +17,35 @@ export async function POST(req) {
   const nickname = String(body.nickname || '').trim().slice(0, MAX_NICK);
   const message = String(body.message || '').trim().slice(0, MAX_MSG);
   const email = String(body.email || '').trim();
-  const color = Number(body.color);
+  const fallbackColor = Number(body.color);
   const rawCells = Array.isArray(body.cells) ? body.cells : [];
 
   if (!nickname) return fail('Coloque seu nome ou apelido.');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('E-mail inválido.');
-  if (!Number.isInteger(color) || color < 0 || color >= COLORS.length) return fail('Cor inválida.');
   if (hasBadWord(nickname) || hasBadWord(message)) return fail('Sem palavrão, por favor. Muda o texto e tenta de novo.');
 
   const seen = new Set();
   const cells = [];
-  for (const c of rawCells) {
-    const x = Number(c?.[0]);
-    const y = Number(c?.[1]);
+  for (const raw of rawCells) {
+    const x = Number(raw?.[0]);
+    const y = Number(raw?.[1]);
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= W || y >= H) {
       return fail('Quadradinho fora do mural.');
     }
     if (letterAt(x, y) !== -1) return fail('As letras L X F não podem ser pintadas por cima.');
+    const c = raw?.[2] === undefined ? fallbackColor : Number(raw[2]);
+    if (!Number.isInteger(c) || c < 0 || c >= COLORS.length) return fail('Cor inválida.');
     const key = y * W + x;
     if (!seen.has(key)) {
       seen.add(key);
-      cells.push([x, y]);
+      cells.push([x, y, c]);
     }
   }
+
+  // cor principal do pedido (a mais usada) — aparece no ranking
+  const counts = COLORS.map(() => 0);
+  for (const cell of cells) counts[cell[2]]++;
+  const color = counts.indexOf(Math.max(...counts));
   if (cells.length === 0) return fail('Selecione pelo menos 1 quadradinho.');
   if (cells.length > MAX_PER_ORDER) return fail(`Máximo de ${MAX_PER_ORDER} quadradinhos por compra.`);
 
@@ -66,8 +72,8 @@ export async function POST(req) {
     return fail('Erro ao criar o pedido. Tente de novo.', 500);
   }
 
-  const rows = cells.map(([x, y]) => ({
-    x, y, color, order_id: order.id, status: 'reserved', expires_at: expiresAt.toISOString(),
+  const rows = cells.map(([x, y, c]) => ({
+    x, y, color: c, order_id: order.id, status: 'reserved', expires_at: expiresAt.toISOString(),
   }));
   const { error: pixErr } = await db.from('pixels').insert(rows);
   if (pixErr) {
